@@ -1,0 +1,138 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <time.h>
+
+#define N 1000
+#define PI 3.14159265
+
+#define MOD_BPSK 1
+#define MOD_QPSK 2
+
+int modulation;  
+
+int bits[2 * N];             
+double symbols_I[N];         
+double symbols_Q[N];        
+double noisy_I[N];           
+double noisy_Q[N];           
+int recovered_bits[2 * N];   
+
+void generate_bits() {
+    srand(time(NULL));
+    int bit_count = (modulation == MOD_BPSK) ? N : 2 * N;
+
+    for (int i = 0; i < bit_count; i++) {
+        bits[i] = rand() % 2;
+    }
+
+    if (modulation == MOD_BPSK) {
+        for (int i = 0; i < N; i++) {
+            symbols_I[i] = (bits[i] == 0) ? -1.0 : 1.0;
+            symbols_Q[i] = 0.0;  
+        }
+    } else if (modulation == MOD_QPSK) {
+        for (int i = 0; i < N; i++) {
+            int b1 = bits[2 * i];
+            int b2 = bits[2 * i + 1];
+            
+            symbols_I[i] = (b1 == 0) ? -1.0 : 1.0;
+            symbols_Q[i] = (b2 == 0) ? -1.0 : 1.0;
+        }
+    }
+}
+
+double gaussian_noise() {
+    double u1 = ((double)rand() + 1) / ((double)RAND_MAX + 1);
+    double u2 = ((double)rand() + 1) / ((double)RAND_MAX + 1);
+    return sqrt(-2 * log(u1)) * cos(2 * PI * u2);
+}
+
+void add_noise(double snr_db) {
+    double snr = pow(10, snr_db / 10.0);
+    double noise_std = sqrt(1 / (2 * snr)); 
+
+    for (int i = 0; i < N; i++) {
+        noisy_I[i] = symbols_I[i] + noise_std * gaussian_noise();
+        noisy_Q[i] = symbols_Q[i] + noise_std * gaussian_noise();
+    }
+}
+
+void detect() {
+    if (modulation == MOD_BPSK) {
+        for (int i = 0; i < N; i++) {
+            recovered_bits[i] = noisy_I[i] >= 0 ? 1 : 0;
+        }
+    } else if (modulation == MOD_QPSK) {
+        for (int i = 0; i < N; i++) {
+            recovered_bits[2 * i]     = noisy_I[i] >= 0 ? 1 : 0;
+            recovered_bits[2 * i + 1] = noisy_Q[i] >= 0 ? 1 : 0;
+        }
+    }
+}
+
+double compute_ber() {
+    int bit_count = (modulation == MOD_BPSK) ? N : 2 * N;
+    int errors = 0;
+    for (int i = 0; i < bit_count; i++) {
+        if (bits[i] != recovered_bits[i]) errors++;
+    }
+    return (double)errors / bit_count;
+}
+
+void save_constellation(const char* filename) {
+    FILE *f = fopen(filename, "w");
+    if (f == NULL) {
+        printf("Error opening constellation file.\n");
+        return;
+    }
+
+    for (int i = 0; i < N; i++) {
+        fprintf(f, "%f,%f\n", noisy_I[i], noisy_Q[i]);
+    }
+
+    fclose(f);
+}
+
+int main() {
+    int choice;
+    printf("Choose modulation type:\n");
+    printf("1 - BPSK\n");
+    printf("2 - QPSK\n");
+    printf("Enter choice: ");
+    scanf("%d", &choice);
+
+    if (choice == 1) {
+        modulation = MOD_BPSK;
+    } else if (choice == 2) {
+        modulation = MOD_QPSK;
+    } else {
+        printf("Invalid choice. Defaulting to BPSK.\n");
+        modulation = MOD_BPSK;
+    }
+
+    FILE *f = fopen("ber_results.csv", "w");
+    if (f == NULL) {
+        printf("Error opening file for writing.\n");
+        return 1;
+    }
+
+    fprintf(f, "SNR_dB,BER\n");
+
+    for (double snr_db = 0; snr_db <= 10; snr_db += 1.0) {
+        generate_bits();
+        add_noise(snr_db);
+        save_constellation("constellation.csv");
+        detect();
+        double ber = compute_ber();
+        printf("SNR = %.1f dB, BER = %.6f\n", snr_db, ber);
+        fprintf(f, "%.1f,%.6f\n", snr_db, ber);
+    }
+
+    fclose(f);
+
+    printf("Results saved to ber_results.csv\n");
+    return 0;
+}
+
+
